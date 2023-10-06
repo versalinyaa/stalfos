@@ -64,12 +64,22 @@ die() {
     exit 1
 }
 
+require_cmd() {
+    if ! silent which "$1"; then
+        die "required command is missing: $1"
+    fi
+}
+
 nspawn() {
-    # FIXME: nspawn does not return correct exit code
     sudo systemd-nspawn \
         --image="$stalfos_img" \
         --bind="$pacman_cache_dir:/var/cache/pacman" \
         -- "$@"
+}
+
+nspawn_sh() {
+    # Spawn a shell with sane error handling
+    nspawn bash -c "set -eu; set -o pipefail; $1"
 }
 
 pacman_refresh_once_flag=0
@@ -145,12 +155,17 @@ bootstrap_img="$STALFOS_CACHE_DIR/archlinux-bootstrap-x86_64.tar.gz"
 die_if_file_exists "$stalfos_img"
 die_if_file_exists "$stalfos_img_chroot"
 
+# Require some non-universal commands
+require_cmd mkfs.ext4
+require_cmd sponge
+require_cmd systemd-nspawn
+require_cmd wget
+
 # Init the cache
 mkdir -p -- "$STALFOS_CACHE_DIR"
 sudo mkdir -p -- "$pacman_cache_dir"
 
-# Download the bootstrap image.
-#
+log "download bootstrap image"
 # Compare local timestamp against server timestamp, so that wget always fetches
 # the latest image.
 wget --timestamping \
@@ -158,17 +173,17 @@ wget --timestamping \
      -P "$(dirname -- "$bootstrap_img")" \
      "$STALFOS_ARCH_MIRROR/iso/latest/archlinux-bootstrap-x86_64.tar.gz"
 
-# Unpack the bootstrap image...
-
+log "create disk image"
 truncate -s "$STALFOS_DISK_SIZE" "$stalfos_img"
 hooks_prepend error hook_rm_img
 mkfs.ext4 -L stalfos "$stalfos_img"
 
+log "mount disk image to chroot"
 sudo mkdir -- "$stalfos_img_chroot"
 hooks_prepend exit hook_rm_chroot
 sudo mount -- "$stalfos_img" "$stalfos_img_chroot"
 
-log "unpacking $bootstrap_img"
+log "unpack bootstrap image into chroot"
 sudo tar -C "$stalfos_img_chroot" \
     --numeric-owner \
     --strip-components=1 \
@@ -179,7 +194,7 @@ sudo rm -f "$stalfos_img_chroot/root/version"
 sudo mv "$stalfos_img_chroot/pkglist.x86_64.txt" \
         "$stalfos_img_chroot/etc/pacman.d/bootstrap.pkglist"
 
-# Install config files
+log "install config files into chroot"
 find "$stalfos_top/config/rootfs" -type f -printf '%P\0' \
 | while read -r -d '' x; do
     # TODO: Be smarter about file perms and owner
@@ -188,34 +203,40 @@ find "$stalfos_top/config/rootfs" -type f -printf '%P\0' \
         "$stalfos_img_chroot/$x"
 done
 
+log "authorize ssh chromiumos test keys for root login"
+sudo install -d -m700 "$stalfos_img_chroot/root/.ssh"
+cat "$stalfos_top/misc/ssh/chromiumos_test_rsa.pub" \
+    | sudo sponge -a "$stalfos_img_chroot/root/.ssh/authorized_keys"
+sudo chmod 600 "$stalfos_img_chroot/root/.ssh/authorized_keys"
+
+log "unmount chroot"
 sudo umount "$stalfos_img_chroot"
 sudo rmdir "$stalfos_img_chroot"
 
-# Set root password
+log "set root password"
 if [[ -z "$STALFOS_ROOT_PASSWD" ]]; then
     die 'STALFOS_ROOT_PASSWD is empty'
 fi
-nspawn bash -c "chpasswd <<<'root:$STALFOS_ROOT_PASSWD'"
+nspawn_sh "chpasswd <<<'root:$STALFOS_ROOT_PASSWD'"
 
-# Init the pacman keyring
+log "init pacman keyring"
 nspawn pacman-key --init
 nspawn pacman-key --populate
 
-# Init the pacman mirrorlist
 if [[ "$STALFOS_PACMAN_REFLECTOR_ENABLE" -eq 1 ]]; then
+    log "init pacman mirror list"
     pacman_refresh_once
     nspawn pacman -S --noconfirm --needed reflector
-    nspawn sh -c "reflector --fastest 8 -p https -c '$STALFOS_PACMAN_REFLECTOR_COUNTRIES' --save=/etc/pacman.d/mirrorlist"
+    nspawn_sh "reflector --fastest 8 -p https -c '$STALFOS_PACMAN_REFLECTOR_COUNTRIES' --save=/etc/pacman.d/mirrorlist"
 fi
 
-# Install pkgs
+log "install pacman packages"
 pacman_refresh_once
-nspawn sh -c "pacman -S --noconfirm --needed \$(sed 's/#.*//' /etc/pacman.d/stalfos.pkglist)"
+nspawn_sh "pacman -S --noconfirm --needed \$(sed 's/#.*//' /etc/pacman.d/stalfos.pkglist)"
 
-# Setup services
+log "setup systemd units"
 nspawn systemctl set-default multi-user.target
 nspawn systemctl enable systemd-networkd.service
-
-# Setup ssh
 nspawn systemctl enable sshd.service
-# TODO: Add authorized ssh keys
+
+log "done creating image"
