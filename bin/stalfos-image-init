@@ -11,7 +11,7 @@ set -o pipefail
 
 script_name='stalfos-image-init'
 stalfos_bin_dir=$(realpath -s -- "$(dirname -- "$BASH_SOURCE")")
-stalfos_top=$(dirname -- "$stalfos_bin_dir"
+stalfos_top=$(dirname -- "$stalfos_bin_dir")
 
 die() {
     if [[ "$#" ]]; then
@@ -66,7 +66,7 @@ get_arch_initrd() {
     nspawn dracut --kver="$kver"
     sudo mv "$stalfos_img_chroot/boot/$fname" "$stalfos_top/"
     ln -sT "$stalfos_top/$fname" "$stalfos_top/initrd"
-
+}
 
 euid=$(id -u)
 if [[ "$euid" = 0 ]]; then
@@ -90,7 +90,7 @@ sudo mkdir -p -- "$pacman_cache_dir"
 # the latest image.
 wget --timestamping \
      --show-progress \
-     -O "$bootstrap_img" \
+     -P "$(dirname -- "$bootstrap_img")" \
      "$STALFOS_ARCH_MIRROR/iso/latest/archlinux-bootstrap-x86_64.tar.gz"
 
 # Unpack the bootstrap image...
