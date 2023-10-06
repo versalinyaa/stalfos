@@ -14,8 +14,10 @@ dhcp
 dhcpcd
 gdb
 git
+less
 lesspipe
 man
+man-pages
 meson
 openssh
 pacman-contrib

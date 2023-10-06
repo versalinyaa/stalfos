@@ -63,10 +63,21 @@ die() {
 nspawn() {
     # FIXME: nspawn does not return correct exit code
     sudo systemd-nspawn \
-        --directory="$stalfos_img_chroot" \
+        --image="$stalfos_img" \
         --bind="$pacman_cache_dir:/var/cache/pacman" \
         -- "$@"
 }
+
+pacman_refresh_once_flag=0
+pacman_refresh_once() {
+    if ((pacman_refresh_once_flag)); then
+        return 0
+    fi
+
+    nspawn pacman -Sy
+    pacman_refresh_once_flag=1
+}
+
 
 die_if_file_exists() {
     if [[ -e "$1" ]]; then
@@ -172,6 +183,9 @@ find "$stalfos_top/config/rootfs" -type f -printf '%P\0' \
         "$stalfos_img_chroot/$x"
 done
 
+sudo umount "$stalfos_img_chroot"
+sudo rmdir "$stalfos_img_chroot"
+
 # Set root password
 if [[ -z "$STALFOS_ROOT_PASSWD" ]]; then
     die 'STALFOS_ROOT_PASSWD is empty'
@@ -184,14 +198,15 @@ nspawn pacman-key --populate
 
 # Init the pacman mirrorlist
 if [[ "$STALFOS_PACMAN_REFLECTOR_ENABLE" -eq 1 ]]; then
-    nspawn sh -c "cp -a /etc/pacman.d/mirrorlist{,.orig}"
-    nspawn sh -c "pacman -Sy --noconfirm --needed reflector"
-    nspawn sh -c "reflector --fastest 8 -p https -c '$STALFOS_PACMAN_REFLECTOR_COUNTRIES' >/etc/pacman.d/mirrorlist"
+    pacman_refresh_once
+    nspawn pacman -S --noconfirm --needed reflector
+    nspawn sh -c "reflector --fastest 8 -p https -c '$STALFOS_PACMAN_REFLECTOR_COUNTRIES' --save=/etc/pacman.d/mirrorlist"
 fi
 
 # Install pkgs
-pkgs=$(sed 's/#.*//' "$stalfos_img_chroot/etc/pacman.d/stalfos.pkglist")
-nspawn sh -c "pacman -Sy --noconfirm --needed $pkgs"
+pacman_refresh_once
+nspawn sh -c "sed 's/#.*//' /etc/pacman.d/stalfos.pkglist \
+              | pacman -S --noconfirm --needed -"
 
 # Setup services
 nspawn systemctl set-default multi-user.target
