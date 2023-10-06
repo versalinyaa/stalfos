@@ -195,7 +195,11 @@ sudo mv "$stalfos_img_chroot/pkglist.x86_64.txt" \
         "$stalfos_img_chroot/etc/pacman.d/bootstrap.pkglist"
 
 log "install config files into chroot"
-find "$stalfos_top/config/rootfs" -type f -printf '%P\0' \
+find "$stalfos_top/config/rootfs" \
+     -type f \
+     -not -name '*.swp' \
+     -not -name '*~' \
+     -printf '%P\0' \
 | while read -r -d '' x; do
     # TODO: Be smarter about file perms and owner
     sudo install -TD -m644 \
