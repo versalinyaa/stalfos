@@ -5,6 +5,8 @@
 
 # TODO: Avoid creating files as root, by using uid/gid mappings.
 # TODO: Rewrite in not-bash.
+# TODO: Cleanup bad state on failure.
+# TODO: Unmount chroot on failure.
 
 set -eu
 set -o pipefail
@@ -76,7 +78,7 @@ fi
 source "$stalfos_top/config/config.bash"
 
 stalfos_img="$stalfos_top/stalfos.img"
-stalfos_img_img_chroot="${stalfos_img}.d"
+stalfos_img_chroot="${stalfos_img}.d"
 pacman_cache_dir="$STALFOS_CACHE_DIR/pacman"
 bootstrap_img="$STALFOS_CACHE_DIR/archlinux-bootstrap-x86_64.tar.gz"
 
@@ -104,7 +106,7 @@ mkfs.ext4 -L stalfos "$stalfos_img"
 sudo mkdir -- "$stalfos_img_chroot"
 sudo mount -- "$stalfos_img" "$stalfos_img_chroot"
 
-sudo tar -C root \
+sudo tar -C "$stalfos_img_chroot" \
     --numeric-owner \
     --strip-components=1 \
     -xvf "$bootstrap_img"

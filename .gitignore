@@ -1,0 +1,8 @@
+/initramfs
+/initramfs-*
+/initrd
+/initrd-*
+/stalfos.img
+/stalfos.img.d
+/vmlinuz
+/vmlinuz-*
