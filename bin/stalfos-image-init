@@ -82,6 +82,9 @@ stalfos_img_chroot="${stalfos_img}.d"
 pacman_cache_dir="$STALFOS_CACHE_DIR/pacman"
 bootstrap_img="$STALFOS_CACHE_DIR/archlinux-bootstrap-x86_64.tar.gz"
 
+die_if_file_exists "$stalfos_img"
+die_if_file_exists "$stalfos_img_chroot"
+
 # Init the cache
 mkdir -p -- "$STALFOS_CACHE_DIR"
 sudo mkdir -p -- "$pacman_cache_dir"
@@ -96,9 +99,6 @@ wget --timestamping \
      "$STALFOS_ARCH_MIRROR/iso/latest/archlinux-bootstrap-x86_64.tar.gz"
 
 # Unpack the bootstrap image...
-
-die_if_file_exists "$stalfos_img"
-die_if_file_exists "$stalfos_img_chroot"
 
 truncate -s "$STALFOS_DISK_SIZE" "$stalfos_img"
 mkfs.ext4 -L stalfos "$stalfos_img"
