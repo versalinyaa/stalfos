@@ -5,27 +5,34 @@
 
 # TODO: Avoid creating files as root, by using uid/gid mappings.
 # TODO: Rewrite in not-bash.
-# TODO: Cleanup bad state on failure.
-# TODO: Unmount chroot on failure.
+# TODO: Cleanup all bad state on failure.
 
 set -eu
 set -o pipefail
 
 exit_hooks=()
+error_hooks=()
 
-exit_hooks_prepend() {
-    exit_hooks=("$@" "${exit_hooks[@]}")
+hooks_prepend() {
+    local -n hooks="${1}_hooks"
+    shift
+
+    hooks=("$@" "${hooks[@]}")
+    #echo >&2 "debug: exit_hooks=${exit_hooks[@]}"
+    #echo >&2 "debug: error_hooks=${error_hooks[@]}"
+    #exit 1
 }
 
-exit_hooks_run() {
+hooks_run() {
+    local -n hooks="${1}_hooks"
     local cmd
 
-    for cmd in "${exit_hooks[@]}"; do
+    for cmd in "${hooks[@]}"; do
         "${cmd[@]}"
     done
 }
 
-exit_hook_rm_chroot() {
+hook_rm_chroot() {
     # omg i hate bash
     
     if silent mountpoint "$stalfos_img_chroot"; then
@@ -91,7 +98,8 @@ get_arch_initrd() {
     ln -sT "$stalfos_top/$fname" "$stalfos_top/initrd"
 }
 
-trap exit_hooks_run EXIT
+trap 'hooks_run exit' EXIT
+trap 'hooks_run error' ERR
 
 script_name='stalfos-image-init'
 stalfos_bin_dir=$(realpath -s -- "$(dirname -- "$BASH_SOURCE")")
@@ -133,10 +141,11 @@ wget --timestamping \
 # Unpack the bootstrap image...
 
 truncate -s "$STALFOS_DISK_SIZE" "$stalfos_img"
+hooks_prepend error "rm -f -- '$stalfos_img'"
 mkfs.ext4 -L stalfos "$stalfos_img"
 
-exit_hooks_prepend exit_hook_rm_chroot
 sudo mkdir -- "$stalfos_img_chroot"
+hooks_prepend exit hook_rm_chroot
 sudo mount -- "$stalfos_img" "$stalfos_img_chroot"
 
 sudo tar -C "$stalfos_img_chroot" \
@@ -150,7 +159,7 @@ sudo mv "$stalfos_img_chroot/pkglist.x86_64.txt" \
         "$stalfos_img_chroot/etc/pacman.d/bootstrap.pkglist"
 
 # Install config files
-find "$stalfos_top/config/rootfs" -printf '%P\0' \
+find "$stalfos_top/config/rootfs" -type f -printf '%P\0' \
 | while read -r -d '' x; do
     # TODO: Be smarter about file perms and owner
     sudo install -TD -m644 \
