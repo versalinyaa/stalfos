@@ -1,0 +1,65 @@
+base
+base-devel
+
+# For generating a ranked mirrorlist
+reflector
+
+# initrd
+dracut
+
+# non-gui
+bash-completion
+curl
+dhcp
+dhcpcd
+gdb
+git
+lesspipe
+man
+meson
+openssh
+pacman-contrib
+python-jinja # for sommelier
+tig
+tmux
+vim
+wget
+
+# For the provider of pkg ttf-font, choose noto-fonts because it has good CJK
+# coverage, unlike the other options.
+noto-fonts
+noto-fonts-cjk
+noto-fonts-emoji
+noto-fonts-extra
+
+# gfx
+lib32-vulkan-intel
+lib32-vulkan-mesa-layers
+lib32-vulkan-radeon
+lib32-vulkan-validation-layers
+lib32-vulkan-virtio
+mesa
+mesa-utils
+vulkan-intel
+vulkan-mesa-layers
+vulkan-radeon
+vulkan-validation-layers
+vulkan-virtio
+
+# wayland
+weston
+hyprland
+
+# x11
+openbox
+rxvt-unicode
+xorg
+xorg-xinit
+xterm
+
+# gui common
+gtk4
+python-xdg
+
+# games
+steam

@@ -1,0 +1,144 @@
+#!/bin/bash                                                                                                                                                            
+
+# README
+#   Run script with args.
+
+# TODO: Avoid creating files as root, by using uid/gid mappings.
+# TODO: Rewrite in not-bash.
+
+set -eu
+set -o pipefail
+
+script_name='stalfos-image-init'
+stalfos_bin_dir=$(realpath -s -- "$(dirname -- "$BASH_SOURCE")")
+stalfos_top=$(dirname -- "$stalfos_bin_dir"
+
+die() {
+    if [[ "$#" ]]; then
+        printf >&2 'error: %s\n' "$@"
+    fi
+
+    exit 1
+}
+
+nspawn() {
+    sudo systemd-nspawn \
+        --directory="$stalfos_img_chroot" \
+        --bind="$pacman_cache_dir:/var/cache/pacman" \
+        -- "$@"
+}
+
+die_if_file_exists() {
+    if [[ -e "$1" ]]; then
+        die "file exists: $1"
+    fi
+}
+
+if (($#)); then
+    echo >&2 "usage error: $script_name takes no args"
+    exit 1
+fi
+
+get_arch_kver() {
+    nspawn pacman -Qi linux \
+        | col \
+        | sed -n -e 's/^Version\s*:\s*//p' \
+        | sed -e 's/\.arch/-arch/'
+}
+
+# unused
+get_arch_kernel() {
+    local kver
+
+    kver=$(get_arch_kver)
+    sudo cp -a "$stalfos_img_chroot/lib/modules/$kver/vmlinuz" \
+               "$stalfos_top/vmlinuz-$kver"
+    ln -sT "$stalfos_top/vmlinuz-$kver" \
+           "$stalfos_top/vmlinuz"
+}
+
+# unused
+get_arch_initrd() {
+    local kver
+    kver=$(get_arch_kver)
+    local fname="initramfs-$kver.img"
+
+    nspawn dracut --kver="$kver"
+    sudo mv "$stalfos_img_chroot/boot/$fname" "$stalfos_top/"
+    ln -sT "$stalfos_top/$fname" "$stalfos_top/initrd"
+
+
+euid=$(id -u)
+if [[ "$euid" = 0 ]]; then
+    die "must not run as root"
+fi
+
+source "$stalfos_top/config/config.bash"
+
+stalfos_img="$stalfos_top/stalfos.img"
+stalfos_img_img_chroot="${stalfos_img}.d"
+pacman_cache_dir="$STALFOS_CACHE_DIR/pacman"
+bootstrap_img="$STALFOS_CACHE_DIR/archlinux-bootstrap-x86_64.tar.gz"
+
+# Init the cache
+mkdir -p -- "$STALFOS_CACHE_DIR"
+sudo mkdir -p -- "$pacman_cache_dir"
+
+# Download the bootstrap image.
+#
+# Compare local timestamp against server timestamp, so that wget always fetches
+# the latest image.
+wget --timestamping \
+     --show-progress \
+     -O "$bootstrap_img" \
+     "$STALFOS_ARCH_MIRROR/iso/latest/archlinux-bootstrap-x86_64.tar.gz"
+
+# Unpack the bootstrap image...
+
+die_if_file_exists "$stalfos_img"
+die_if_file_exists "$stalfos_img_chroot"
+
+truncate -s "$STALFOS_DISK_SIZE" "$stalfos_img"
+mkfs.ext4 -L stalfos "$stalfos_img"
+
+sudo mkdir -- "$stalfos_img_chroot"
+sudo mount -- "$stalfos_img" "$stalfos_img_chroot"
+
+sudo tar -C root \
+    --numeric-owner \
+    --strip-components=1 \
+    -xvf "$bootstrap_img"
+
+# Clean up bootstrap build info
+sudo rm -f "$stalfos_img_chroot/root/version"
+sudo mv "$stalfos_img_chroot/pkglist.x86_64.txt" \
+        "$stalfos_img_chroot/etc/pacman.d/bootstrap.pkglist"
+
+# Install config files
+find "$stalfos_top/config/rootfs" -printf '%P\0' \
+| while read -r -d '' x; do
+    # TODO: Be smarter about file perms and owner
+    sudo install -TD -m644 \
+        "$stalfos_top/config/$x" \
+        "$stalfos_img_chroot/$x"
+done
+
+# Set root password
+nspawn bash -c "print '%s' "$STALFOS_ROOT_PASSWD" | passwd --stdin"
+
+# Install pkgs
+pkgs=$(sed 's/#.*//' "$stalfos_img_chroot/etc/pacman.d/stalfos.pkglist")
+nspawn pacman-key --init
+nspawn pacman-key --populate
+nspawn sh -c "pacman -Sy --noconfirm --needed linux $pkglist"
+
+# Setup services
+nspawn systemctl set-default multi-user.target
+nspawn systemctl enable systemd-networkd.service
+
+# Setup ssh
+nspawn systemctl enable sshd.service
+# TODO: Add authorized ssh keys
+
+sudo umount --recursive root
+sudo rmdir root
