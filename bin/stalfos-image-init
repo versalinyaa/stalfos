@@ -178,11 +178,20 @@ if [[ -z "$STALFOS_ROOT_PASSWD" ]]; then
 fi
 nspawn bash -c "chpasswd <<<'root:$STALFOS_ROOT_PASSWD'"
 
-# Install pkgs
-pkgs=$(sed 's/#.*//' "$stalfos_img_chroot/etc/pacman.d/stalfos.pkglist")
+# Init the pacman keyring
 nspawn pacman-key --init
 nspawn pacman-key --populate
-nspawn sh -c "pacman -Sy --noconfirm --needed linux $pkgs"
+
+# Init the pacman mirrorlist
+if [[ "$STALFOS_PACMAN_REFLECTOR_ENABLE" -eq 1 ]]; then
+    nspawn sh -c "cp -a /etc/pacman.d/mirrorlist{,.orig}"
+    nspawn sh -c "pacman -Sy --noconfirm --needed reflector"
+    nspawn sh -c "reflector --fastest 8 -p https -c '$STALFOS_PACMAN_REFLECTOR_COUNTRIES' >/etc/pacman.d/mirrorlist"
+fi
+
+# Install pkgs
+pkgs=$(sed 's/#.*//' "$stalfos_img_chroot/etc/pacman.d/stalfos.pkglist")
+nspawn sh -c "pacman -Sy --noconfirm --needed $pkgs"
 
 # Setup services
 nspawn systemctl set-default multi-user.target

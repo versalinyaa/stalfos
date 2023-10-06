@@ -5,7 +5,7 @@ base-devel
 reflector
 
 # initrd
-dracut
+#dracut
 
 # non-gui
 bash-completion
