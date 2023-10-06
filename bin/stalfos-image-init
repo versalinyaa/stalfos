@@ -11,9 +11,35 @@
 set -eu
 set -o pipefail
 
-script_name='stalfos-image-init'
-stalfos_bin_dir=$(realpath -s -- "$(dirname -- "$BASH_SOURCE")")
-stalfos_top=$(dirname -- "$stalfos_bin_dir")
+exit_hooks=()
+
+exit_hooks_prepend() {
+    exit_hooks=("$@" "${exit_hooks[@]}")
+}
+
+exit_hooks_run() {
+    local cmd
+
+    for cmd in "${exit_hooks[@]}"; do
+        "${cmd[@]}"
+    done
+}
+
+exit_hook_rm_chroot() {
+    # omg i hate bash
+    
+    if silent mountpoint "$stalfos_img_chroot"; then
+        sudo umount "$stalfos_img_chroot"
+    fi
+
+    if [[ -d "$stalfos_img_chroot" ]]; then
+        sudo rmdir "$stalfos_img_chroot"
+    fi
+}
+
+silent() {
+    "$@" >&/dev/null
+}
 
 die() {
     if [[ "$#" ]]; then
@@ -35,11 +61,6 @@ die_if_file_exists() {
         die "file exists: $1"
     fi
 }
-
-if (($#)); then
-    echo >&2 "usage error: $script_name takes no args"
-    exit 1
-fi
 
 get_arch_kver() {
     nspawn pacman -Qi linux \
@@ -69,6 +90,17 @@ get_arch_initrd() {
     sudo mv "$stalfos_img_chroot/boot/$fname" "$stalfos_top/"
     ln -sT "$stalfos_top/$fname" "$stalfos_top/initrd"
 }
+
+trap exit_hooks_run EXIT
+
+script_name='stalfos-image-init'
+stalfos_bin_dir=$(realpath -s -- "$(dirname -- "$BASH_SOURCE")")
+stalfos_top=$(dirname -- "$stalfos_bin_dir")
+
+if (($#)); then
+    echo >&2 "usage error: $script_name takes no args"
+    exit 1
+fi
 
 euid=$(id -u)
 if [[ "$euid" = 0 ]]; then
@@ -103,6 +135,7 @@ wget --timestamping \
 truncate -s "$STALFOS_DISK_SIZE" "$stalfos_img"
 mkfs.ext4 -L stalfos "$stalfos_img"
 
+exit_hooks_prepend exit_hook_rm_chroot
 sudo mkdir -- "$stalfos_img_chroot"
 sudo mount -- "$stalfos_img" "$stalfos_img_chroot"
 
