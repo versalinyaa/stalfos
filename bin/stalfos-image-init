@@ -31,7 +31,7 @@ hooks_run() {
 
 hook_rm_img() {
     if [[ -f "$stalfos_img" ]]; then
-        echo >&2 "failure-cleanup: rm $stalfos_img"
+        log "failure-cleanup: rm $stalfos_img"
         rm -f -- "$stalfos_img"
     fi
 }
@@ -52,9 +52,13 @@ silent() {
     "$@" >&/dev/null
 }
 
+log() {
+    echo >&2 "stalfos: $*"
+}
+
 die() {
     if [[ "$#" ]]; then
-        printf >&2 'error: %s\n' "$@"
+        log "error: $*"
     fi
 
     exit 1
@@ -164,10 +168,11 @@ sudo mkdir -- "$stalfos_img_chroot"
 hooks_prepend exit hook_rm_chroot
 sudo mount -- "$stalfos_img" "$stalfos_img_chroot"
 
+log "unpacking $bootstrap_img"
 sudo tar -C "$stalfos_img_chroot" \
     --numeric-owner \
     --strip-components=1 \
-    -xvf "$bootstrap_img"
+    -xf "$bootstrap_img"
 
 # Clean up bootstrap build info
 sudo rm -f "$stalfos_img_chroot/root/version"
@@ -205,8 +210,7 @@ fi
 
 # Install pkgs
 pacman_refresh_once
-nspawn sh -c "sed 's/#.*//' /etc/pacman.d/stalfos.pkglist \
-              | pacman -S --noconfirm --needed -"
+nspawn sh -c "pacman -S --noconfirm --needed \$(sed 's/#.*//' /etc/pacman.d/stalfos.pkglist)"
 
 # Setup services
 nspawn systemctl set-default multi-user.target
